@@ -480,7 +480,7 @@ class RGM3800Base(object):
     self.ShowProgress('%s...' % msg[0:7])
     msg = NMEABuildLine(msg)
     if verbose:
-      print(">>", msg.decode('ASCII', 'backslashreplace').rstrip('\r\n'), file=sys.stderr)
+      print(">>", repr(msg), file=sys.stderr)
     self.conn.write(msg)
 
   def RecvMessage(self) -> bytes:
@@ -548,7 +548,7 @@ class RGM3800Base(object):
         if c == b'\n':
           # Line completed.
           if verbose:
-            print("<<", msg.decode('ASCII', 'backslashreplace').rstrip('\r\n'), file=sys.stderr)
+            print("<<", repr(msg), file=sys.stderr)
           assert msg[0:1] == b'$'
           assert msg[-2:] == b'\r\n'
           msg = msg[1:-2]

@@ -1,7 +1,10 @@
 #!/usr/bin/env python
 #
 # This is a program to read data off a RoyalTek RGM 3800 GPS data logger.
-# Copyright in 2007, 2008, 2009 by Karsten Petersen <kapet@kapet.de>
+#
+# Copyright 2021 codl <codl@codl.fr>
+#
+# Copyright 2007, 2008, 2009 by Karsten Petersen <kapet@kapet.de>
 #
 # Contributions by Stephen Hildrey <steve@uptime.org.uk>
 #               and Jens-Uwe Hagenah <>

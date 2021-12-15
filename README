@@ -1,5 +1,7 @@
-This is a continuation of rgm3800py by kapet. It is being ported to Python 3.
-It's not at all ready for use.
+This is a continuation of rgm3800py by Karsten Petersen, a command line utility
+for the RGM-3800 GPS logger.
+<https://code.google.com/archive/p/rgm3800py/>
+It is being ported to Python 3. It's not at all ready for use.
 
 Oh, also I don't plan to support macOS or Windows at all, since I don't have
 access to those, and I will probably be ripping those parts out. Make yourself

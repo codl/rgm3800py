@@ -476,8 +476,8 @@ class RGM3800Base(object):
   def ShowInfo(self, msg):
     pass
 
-  def SendMessage(self, msg):
-    self.ShowProgress('%s...' % msg[0:7])
+  def SendMessage(self, msg: bytes):
+    self.ShowProgress('%s...' % msg[0:7].decode('ASCII'))
     msg = NMEABuildLine(msg)
     if verbose:
       print(">>", repr(msg), file=sys.stderr)
@@ -740,7 +740,7 @@ class RGM3800Base(object):
     while retrieved != amount:
       if retries <= 0:
         raise SerialCommunicationError
-      self.SendMessage('PROY102,%i,%i,%i' % (address, format, amount))
+      self.SendMessage(b'PROY102,%i,%i,%i' % (address, format, amount))
       retries -= 1
 
       noise = 0

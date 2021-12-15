@@ -30,7 +30,7 @@ import glob
 import math
 from xml.dom import minidom
 import os
-import Queue
+import queue
 import re
 import struct
 import sys
@@ -47,7 +47,7 @@ except ImportError:
     import serial
   except ImportError:
     # pySerial not installed, no way we can talk to the device.
-    print 'Please install pySerial.'
+    print('Please install pySerial.')
     sys.exit(1)
 
 
@@ -70,12 +70,12 @@ def PrintCallInfo(func):
   """Decorator to print function with arguments and return value."""
   def _Runner(*args, **kwargs):
     all_args = ['%r' % val for val in args]
-    for key, val in kwargs.iteritems():
+    for key, val in kwargs.items():
       all_args.append('%s=%r' % (key, val))
     str_args = ', '.join(all_args)
-    print >>sys.stderr, '%s(%s) <-' % (func.__name__, str_args)
+    print('%s(%s) <-' % (func.__name__, str_args), file=sys.stderr)
     retval = func(*args, **kwargs)
-    print >>sys.stderr, '%s(%s) -> %r' % (func.__name__, str_args, retval)
+    print('%s(%s) -> %r' % (func.__name__, str_args, retval), file=sys.stderr)
     return retval
   return _Runner
 
@@ -115,7 +115,7 @@ class TermiosSerial(object):
     termios.tcflush(self._fd, termios.TCIOFLUSH)
 
     # Set up communication buffers and start receiver thread.
-    self.__buffer = Queue.Queue(0)
+    self.__buffer = queue.Queue(0)
     self.__buffer2 = None
 
     self.__receiver = threading.Thread(target=self.__ReceiverThread)
@@ -154,7 +154,7 @@ class TermiosSerial(object):
           # shouldn't be more than ~1.5K.
           data = os.read(self._fd, 2048)
           self.__buffer.put(data)
-        except OSError, reason:
+        except OSError as reason:
           if reason.errno == errno.EAGAIN:
             continue
           else:
@@ -202,7 +202,7 @@ class TermiosSerial(object):
       if not self.__buffer2:
         try:
           self.__buffer2 = self.__buffer.get_nowait()
-        except Queue.Empty:
+        except queue.Empty:
           # Don't eat all CPU!
           time.sleep(0.001)
           continue
@@ -317,8 +317,7 @@ class RGM3800Waypoint(object):
     if self.format >= 4:
       # All above + dilution of precision + sat strengths + unknown stuff
       _ = data[24:26]  # unknown, some flags?  3d/2d lock or so?
-      self.hdop, self.pdop, self.vdop = map(lambda x: x/100.0,
-                                            struct.unpack('<3H', data[26:32]))
+      self.hdop, self.pdop, self.vdop = [x/100.0 for x in struct.unpack('<3H', data[26:32])]
       sat = struct.unpack('<24B', data[32:56])
       self.sat = [(sat[i], sat[i+1]) for i in range(0, 24, 2)]
       _ = data[56:60]  # unknown
@@ -481,7 +480,7 @@ class RGM3800Base(object):
     self.ShowProgress('%s...' % msg[0:7])
     msg = NMEABuildLine(msg)
     if verbose:
-      print >>sys.stderr, ">>", repr(msg)
+      print(">>", repr(msg), file=sys.stderr)
     self.conn.write(msg)
 
   def RecvMessage(self):
@@ -547,7 +546,7 @@ class RGM3800Base(object):
         if c == '\n':
           # Line completed.
           if verbose:
-            print >>sys.stderr, "<<",  repr(msg)
+            print("<<",  repr(msg), file=sys.stderr)
           assert msg[0] == '$'
           assert msg[-2] == '\r'
           assert msg[-1] == '\n'
@@ -561,8 +560,8 @@ class RGM3800Base(object):
           else:
             # Silently ignore checksum errors and just skip the line.
             if verbose:
-              print >>sys.stderr, 'checksum failed: %s != %s' % (chksum,
-                                                                 shouldbe)
+              print('checksum failed: %s != %s' % (chksum,
+                                                                 shouldbe), file=sys.stderr)
             state = 'start'
             msg = ''
             continue
@@ -707,7 +706,7 @@ class RGM3800Base(object):
     msg = self.SendRecv('PROY108', result='LOG108,')
     data = msg[0].split(',')[1:]
     # data type, ?, ?, memory full, ?, interval, ?, #tracks, #waypoints in last track
-    result = map(int, data)
+    result = list(map(int, data))
     self._cached_info = result
     return result
 
@@ -715,13 +714,13 @@ class RGM3800Base(object):
     msg = self.SendRecv('PROY100', result='LOG100,')
     data = msg[0].split(',')[1:]
     # total memory, sector size, #sectors
-    return map(int, data)
+    return list(map(int, data))
 
   def GetTrackInfo(self, number):
     msg = self.SendRecv('PROY101,%i' % number, result='LOG101,')
     data = msg[0].split(',')[1:]
     date = ParseDateTime(data[0])
-    data = [date] + map(int, data[1:])
+    data = [date] + list(map(int, data[1:]))
     # date, data type, #waypoints, memory address
     return data
 
@@ -912,30 +911,30 @@ def DoInfo(rgm, args):
     rgm.SetProgressPercent((i + 1) * 100 / tracks)
   rgm.SetProgressPercent(None)
 
-  print '### Device ###'
-  print 'Firmware version: %s' % version
-  print 'Total memory    : %i KB' % (memory // 1024)
+  print('### Device ###')
+  print('Firmware version: %s' % version)
+  print('Total memory    : %i KB' % (memory // 1024))
   if timestamp:
-    print 'Current UTC time: %s' % timestamp
-  print
-  print '### Configuration ###'
-  print 'Logging format  : %s' % format_string
-  print 'Logging interval: %i seconds' % interval
-  print 'If memory full  : %s' % memoryfull_string
-  print
+    print('Current UTC time: %s' % timestamp)
+  print()
+  print('### Configuration ###')
+  print('Logging format  : %s' % format_string)
+  print('Logging interval: %i seconds' % interval)
+  print('If memory full  : %s' % memoryfull_string)
+  print()
   waypoints_per_hour = 3600.0/interval
   bytes_per_hour = waypoints_per_hour * RGM3800Waypoint.GetRawLength(config_format)
   hours_to_memoryfull = (memory - total_size) / bytes_per_hour
-  print '=> %i waypoints per hour' % waypoints_per_hour
-  print '   %i bytes per hour' % bytes_per_hour
-  print '   %i days %i hours until memory full' % (hours_to_memoryfull / 24, hours_to_memoryfull % 24)
-  print
-  print '### Usage ###'
-  print 'Total waypoints : %i' % total_waypoints
-  print 'Number of tracks: %i' % tracks
-  print 'Oldest waypoint : %s' % memory_from
-  print 'Newest waypoint : %s' % memory_to
-  print 'Memory in use   : %.2f%%' % (total_size*100.00/memory)
+  print('=> %i waypoints per hour' % waypoints_per_hour)
+  print('   %i bytes per hour' % bytes_per_hour)
+  print('   %i days %i hours until memory full' % (hours_to_memoryfull / 24, hours_to_memoryfull % 24))
+  print()
+  print('### Usage ###')
+  print('Total waypoints : %i' % total_waypoints)
+  print('Number of tracks: %i' % tracks)
+  print('Oldest waypoint : %s' % memory_from)
+  print('Newest waypoint : %s' % memory_to)
+  print('Memory in use   : %.2f%%' % (total_size*100.00/memory))
 
   return 0
 
@@ -946,9 +945,9 @@ def DoDate(rgm, args):
 
   timestamp = rgm.GetTimestamp()
   if timestamp:
-    print timestamp.strftime('%m%d%H%M%Y')
+    print(timestamp.strftime('%m%d%H%M%Y'))
   else:
-    print 'Date and time not available yet.'
+    print('Date and time not available yet.')
 
 
 def ParseRange(arg, min_, max_):
@@ -993,7 +992,7 @@ def ParseRange(arg, min_, max_):
       end = int(arg[4])
 
   if min_ <= start <= end <= max_:
-    return xrange(start, end + 1)
+    return range(start, end + 1)
   else:
     return None
 
@@ -1017,7 +1016,7 @@ def DoList(rgm, args):
         first_wp.timestamp, last_wp.timestamp, waypoints, format_string)
     if last_wp.dist:
       output += ', %i meter' % last_wp.dist
-    print output
+    print(output)
 
 
 def DoTrack(rgm, args):
@@ -1067,7 +1066,7 @@ def DoTrackX(rgm, args):
     for wp in waypoints:
       e_trkseg.appendChild(wp.GetGPXTrackPT(gpxdoc))
 
-  print gpxdoc.toxml()
+  print(gpxdoc.toxml())
   return 0
 
 
@@ -1076,9 +1075,9 @@ def DoGMouse(rgm, args):
     return DoHelp(rgm, args)
   state = ['off', 'on'].index(args[0])
   if rgm.SetGPSMouse(state):
-    print 'OK'
+    print('OK')
   else:
-    print 'Failed.  Maybe your firmware does not support this interval?'
+    print('Failed.  Maybe your firmware does not support this interval?')
   return 0
 
 
@@ -1090,7 +1089,7 @@ def DoDump(rgm, args):
       msg = rgm.RecvMessage()
       if not msg:
         continue
-      print msg
+      print(msg)
   except KeyboardInterrupt:
     pass
   return 0
@@ -1101,9 +1100,9 @@ def DoInterval(rgm, args):
     return DoHelp(rgm, args)
   interval = int(args[0])
   if rgm.SetInterval(interval):
-    print 'OK'
+    print('OK')
   else:
-    print 'Failed.  Maybe your firmware does not support this interval?'
+    print('Failed.  Maybe your firmware does not support this interval?')
   return 0
 
 
@@ -1112,9 +1111,9 @@ def DoFormat(rgm, args):
     return DoHelp(rgm,args)
   format = int(args[0])
   if rgm.SetFormat(format):
-    print 'OK'
+    print('OK')
   else:
-    print 'Failed.  Maybe your firmware does not support this mode?'
+    print('Failed.  Maybe your firmware does not support this mode?')
   return 0
 
 
@@ -1122,9 +1121,9 @@ def DoMemoryFull(rgm, args):
   if len(args) != 1 or args[0] not in ('overwrite', 'stop'):
     return DoHelp(rgm, args)
   if rgm.SetMemoryFull(args[0]):
-    print 'OK'
+    print('OK')
   else:
-    print 'Failed.  Maybe your firmware does not support this mode?'
+    print('Failed.  Maybe your firmware does not support this mode?')
   return 0
 
 
@@ -1133,57 +1132,57 @@ def DoErase(rgm, args):
     return DoHelp(rgm, args)
 
   try:
-    sure = raw_input('Do you really want to delete ALL tracks? (y/n) [n]: ').lower()
+    sure = input('Do you really want to delete ALL tracks? (y/n) [n]: ').lower()
   except KeyboardInterrupt:
-    print
+    print()
     sure = 'n'
 
   if sure != 'y':
-    print 'Canceled.'
+    print('Canceled.')
   elif rgm.Erase():
-    print 'OK'
+    print('OK')
   else:
-    print 'Failed.'
+    print('Failed.')
 
   return 0
 
 
 def DoHelp():
-  print 'Usage: %s <GLOBAL OPTIONS> <COMMAND> <COMMAND OPTIONS>' % sys.argv[0]
-  print
-  print 'GLOBAL OPTIONS:'
-  print '    -d <dev>, --device=<dev>        Serial device to use'
-  print '    -v, --verbose                   Show serial communication details'
-  print
-  print 'COMMANDS:'
-  print '    help                            This help'
-  print '    info                            Show some info about the device'
-  print '    date                            date -u `%s date`' % sys.argv[0]
-  print '    list [<range>]                  List tracks [in range]'
-  print '    track <range>                   Print waypoints as NMEA records'
-  print '    trackx <range>                  Print waypoints in GPX form'
-  print '    interval <secs>                 Set interval between waypoints (1 <= i <= 60)'
-  print '    memoryfull <overwrite|stop>     Set memory full behaviour'
-  print '    format <x>                      Set what data is logged'
-  print '    gmouse <on|off>                 Turn GPS mouse on/off'
-  print '    dump                            Continuously read+dump data from device'
-  print '    erase all                       Delete all tracks, clear memory'
-  print
-  print 'Known formats:'
+  print('Usage: %s <GLOBAL OPTIONS> <COMMAND> <COMMAND OPTIONS>' % sys.argv[0])
+  print()
+  print('GLOBAL OPTIONS:')
+  print('    -d <dev>, --device=<dev>        Serial device to use')
+  print('    -v, --verbose                   Show serial communication details')
+  print()
+  print('COMMANDS:')
+  print('    help                            This help')
+  print('    info                            Show some info about the device')
+  print('    date                            date -u `%s date`' % sys.argv[0])
+  print('    list [<range>]                  List tracks [in range]')
+  print('    track <range>                   Print waypoints as NMEA records')
+  print('    trackx <range>                  Print waypoints in GPX form')
+  print('    interval <secs>                 Set interval between waypoints (1 <= i <= 60)')
+  print('    memoryfull <overwrite|stop>     Set memory full behaviour')
+  print('    format <x>                      Set what data is logged')
+  print('    gmouse <on|off>                 Turn GPS mouse on/off')
+  print('    dump                            Continuously read+dump data from device')
+  print('    erase all                       Delete all tracks, clear memory')
+  print()
+  print('Known formats:')
   for i in range(10):
     try:
       size = RGM3800Waypoint.GetRawLength(i)
       desc = RGM3800Waypoint.GetFormatDesc(i)
-      print '    %i:  %i bytes/waypoint;  %s' % (i, size, desc)
+      print('    %i:  %i bytes/waypoint;  %s' % (i, size, desc))
     except:
       break
-  print
-  print '<range> for list/track:'
-  print '    8                               8th track only'
-  print '    5-                              5th to last track'
-  print '    7-9                             7th to 9th track'
-  print '    -2                              last two tracks'
-  print
+  print()
+  print('<range> for list/track:')
+  print('    8                               8th track only')
+  print('    5-                              5th to last track')
+  print('    7-9                             7th to 9th track')
+  print('    -2                              last two tracks')
+  print()
   DoVersion()
   return 0
 
@@ -1192,7 +1191,7 @@ def DoVersion():
   r = _SUBVERSION_REVISION.replace('$', '').strip()
   d = _SUBVERSION_DATE.split()[1]
   pySerial = 'serial' in sys.modules and ' pySerial' or ''
-  print 'rgm3800py %s (%s)%s' % (r, d, pySerial)
+  print('rgm3800py %s (%s)%s' % (r, d, pySerial))
   return 0
 
 
@@ -1252,7 +1251,7 @@ def main(argv):
   if not device:
     device = FindDevice()
     if not device:
-      print >>sys.stderr, 'None or multiple PL2303 serial device found.  Use --device=...'
+      print('None or multiple PL2303 serial device found.  Use --device=...', file=sys.stderr)
       return -1
 
   # Open the device.
@@ -1275,8 +1274,8 @@ def main(argv):
     retval = -1
     try:
       retval = func(rgm, args)
-    except SerialCommunicationError, reason:
-      print 'ERROR: %s' % reason
+    except SerialCommunicationError as reason:
+      print('ERROR: %s' % reason)
   finally:
     conn.close()
 

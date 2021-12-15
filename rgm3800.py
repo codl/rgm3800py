@@ -23,8 +23,7 @@
 #   along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 
-_SUBVERSION_REVISION = '$Revision$'
-_SUBVERSION_DATE = '$Date$'
+VERSION = "25.0.0a1"
 
 import datetime
 import errno
@@ -39,7 +38,7 @@ import struct
 import sys
 import threading
 import time
-
+from typing import Optional, Union
 
 try:
   # There is no termios on e.g. Windows.
@@ -50,7 +49,7 @@ except ImportError:
     import serial
   except ImportError:
     # pySerial not installed, no way we can talk to the device.
-    print('Please install pySerial.')
+    print('Please install pySerial.', file=sys.stderr)
     sys.exit(1)
 
 
@@ -166,7 +165,7 @@ class TermiosSerial(object):
       self.__receiver_running = False
       self._Close()
 
-  def write(self, data):
+  def write(self, data: bytes) -> None:
     """Send some data to the device.
 
     Args:
@@ -176,7 +175,7 @@ class TermiosSerial(object):
       raise SerialConnectionLost
     os.write(self._fd, data)
 
-  def read(self, length=1):
+  def read(self, length: int = 1) -> bytes:
     """Retrieve a specific amount of data or time out.
 
     This method returns if either 'length' data was received or 'timeout'
@@ -195,7 +194,7 @@ class TermiosSerial(object):
 
     # self.__buffer is the Queue feeding us data from the receiver thread.
     # self.__buffer2 is data we already got from the Queue but didn't use yet.
-    data = ''
+    data = b''
     while length:
       # Have we timed out?
       if time.time() > endtime:
@@ -231,7 +230,7 @@ class TermiosSerial(object):
     return data
 
 
-def ParseDateTime(datestr, timestr=None):
+def ParseDateTime(datestr : str, timestr : str = None) -> Union[datetime.date, datetime.datetime]:
   """Parse a date (and optional time) string and return as date[time] objects.
 
   Args:
@@ -290,7 +289,7 @@ class RGM3800Waypoint(object):
     self.dist = None
     self.sat = None
     self.hdop = self.vdop = self.pdop = None
- 
+
   def SetDate(self, date):
     self.date = date
 
@@ -346,7 +345,7 @@ class RGM3800Waypoint(object):
     minutes = (value-degree) * 60.0
     return is_positive, degree, minutes
 
-  def GetNMEARecords(self):
+  def GetNMEARecords(self) -> bytes:
     data = {
       'date': self.date.strftime('%d%m%y'),
       'time': self.timestamp.strftime('%H%M%S.000')
@@ -405,10 +404,8 @@ class RGM3800Waypoint(object):
     if data['dist']:
       output.append('RTDIST,A,3,%(pdop)s,%(hdop)s,%(vdop)s,%(dist)s' % data)
 
-    result = []
-    for o in output:
-      result.append(NMEABuildLine(o))
-    return ''.join(result)
+    result = [NMEABuildLine(o.encode('ASCII')) for o in output]
+    return b''.join(result)
 
   def GetGPXTrackPT(self, gpxdoc):
     e_trkpt = gpxdoc.createElement('trkpt')
@@ -447,15 +444,15 @@ class RGM3800Waypoint(object):
     return e_trkpt
 
 
-def NMEACalcChecksum(msg):
+def NMEACalcChecksum(msg: bytes) -> bytes:
   chksum = 0
   for c in msg:
-    chksum ^= ord(c)
-  return '%02X' % chksum
+    chksum ^= c
+  return b'%02X' % chksum
 
 
-def NMEABuildLine(msg):
-  return '$%s*%s\r\n' % (msg, NMEACalcChecksum(msg))
+def NMEABuildLine(msg: bytes) -> bytes:
+  return b'$%s*%s\r\n' % (msg, NMEACalcChecksum(msg))
 
 
 class RGM3800Base(object):
@@ -483,76 +480,77 @@ class RGM3800Base(object):
     self.ShowProgress('%s...' % msg[0:7])
     msg = NMEABuildLine(msg)
     if verbose:
-      print(">>", repr(msg), file=sys.stderr)
+      print(">>", msg.decode('ASCII', 'backslashreplace').rstrip('\r\n'), file=sys.stderr)
     self.conn.write(msg)
 
-  def RecvMessage(self):
+  def RecvMessage(self) -> bytes:
+    UPPERALPHA = b"ABCDEFGHIJKLMNOPQRSTUVWYZ"
+    HEX = b"0123456789ABCDEF"
     state = 'start'
-    msg = ''
+    msg = b''
     while True:
       c = self.conn.read(1)
-      if c == '':
+      if c == b'':
         # We didn't receive a clean message.  Drop what we got.  :-(
-        return ''
+        return b''
       msg += c
 
       if state == 'start':
-        if c == '$':
+        if c == b'$':
           state = 'start1'
           continue
         else:
           state = 'skipnl'
 
       elif state == 'start1':
-        if c.isalpha() and c.isupper():
+        if c in UPPERALPHA:
           state = 'start2'
           continue
         else:
           state = 'skipnl'
 
       elif state == 'start2':
-        if c.isalpha() and c.isupper():
+        if c in UPPERALPHA:
           state = 'start3'
           continue
         else:
           state = 'skipnl'
 
       elif state == 'start3':
-        if c.isalpha() and c.isupper():
+        if c in UPPERALPHA:
           state = 'line'
           continue
         else:
           state = 'skipnl'
 
       elif state == 'chksum':
-        if c in '0123456789ABCDEF':
+        if c in HEX:
           state = 'chksum1'
           continue
         else:
           state = 'line'
 
       elif state == 'chksum1':
-        if c in '0123456789ABCDEF':
+        if c in HEX:
           state = 'eol'
           continue
         else:
           state = 'line'
 
       elif state == 'eol':
-        if c == '\r':
+        if c == b'\r':
           state = 'eol1'
           continue
         else:
           state = 'line'
 
       elif state == 'eol1':
-        if c == '\n':
+        if c == b'\n':
           # Line completed.
           if verbose:
-            print("<<",  repr(msg), file=sys.stderr)
-          assert msg[0] == '$'
-          assert msg[-2] == '\r'
-          assert msg[-1] == '\n'
+            print("<<", msg.decode('ASCII', 'backslashreplace').rstrip('\r\n'), file=sys.stderr)
+          assert msg[0:1] == b'$'
+          assert msg[-2:] == b'\r\n'
           msg = msg[1:-2]
 
           chksum = msg[-2:]
@@ -563,27 +561,26 @@ class RGM3800Base(object):
           else:
             # Silently ignore checksum errors and just skip the line.
             if verbose:
-              print('checksum failed: %s != %s' % (chksum,
-                                                                 shouldbe), file=sys.stderr)
+              print('checksum failed: %r != %r' % (chksum, shouldbe), file=sys.stderr)
             state = 'start'
-            msg = ''
+            msg = b''
             continue
         else:
           state = 'line'
 
       if state == 'line':
-        if c == '*':
+        if c == b'*':
           state = 'chksum'
         continue
 
       if state == 'skipnl':
-        if c == '\r':
+        if c == b'\r':
           state = 'skipnl1'
         continue
       elif state == 'skipnl1':
-        if c == '\n':
+        if c == b'\n':
           state = 'start'
-          msg = ''
+          msg = b''
         else:
           state = 'skipnl'
         continue
@@ -601,6 +598,10 @@ class RGM3800Base(object):
     Returns:
       List of strings, received response.
     """
+    if isinstance(request, str):
+      request = request.encode('ASCII')
+    if isinstance(result, str):
+      result = result.encode('ASCII')
     result_lines = []
     for i in range(5):
       # Send the command.
@@ -645,16 +646,16 @@ class RGM3800Base(object):
     # not made a lock on satellites yet and therefore has no idea of the time
     # it answer with LOG002 instead of LOG003!
     data = self.SendRecv('PROY003', lines=1)
-    if not data[0].startswith('LOG003,'):
+    if not data[0].startswith(b'LOG003,'):
       return None
     self.ClearProgress()
-    data = data[0].split(',')
+    data = data[0].split(b',')
     # LOG003,20071226,101221
     return ParseDateTime(data[1], data[2])
 
   def GetMemoryTimeframe(self):
     data = self.SendRecv('PROY006', result='LOG006,')
-    data = data[0].split(',')
+    data = data[0].split(b',')
     if len(data) != 5:
       return None, None
     _, fromdate, fromtime, todate, totime = data
@@ -667,7 +668,7 @@ class RGM3800Base(object):
       i = 0
     data = self.SendRecv('PROY103,0,%i' % i, result='LOG103')
     self.ClearProgress()
-    _, result = data[0].split(',')
+    _, result = data[0].split(b',')
     return result == '1'
 
   def SetInterval(self, interval):
@@ -677,7 +678,7 @@ class RGM3800Base(object):
     data = self.SendRecv('PROY104,0,%i,%i,%i' % (interval,format,memoryfull),
                          result='LOG104')
     self.ClearProgress()
-    _, result = data[0].split(',')
+    _, result = data[0].split(b',')
     return result == '1'
 
   def SetFormat(self, format):
@@ -687,7 +688,7 @@ class RGM3800Base(object):
     data = self.SendRecv('PROY104,0,%i,%i,%i' % (interval,format,memoryfull),
                          result='LOG104')
     self.ClearProgress()
-    _, result = data[0].split(',')
+    _, result = data[0].split(b',')
     return result == '1'
 
   def SetMemoryFull(self, memoryfull):
@@ -698,7 +699,7 @@ class RGM3800Base(object):
     data = self.SendRecv('PROY104,0,%i,%i,%i' % (interval,format,memoryfull),
                          result='LOG104')
     self.ClearProgress()
-    _, result = data[0].split(',')
+    _, result = data[0].split(b',')
     return result == '1'
  
   def GetInfo(self):
@@ -707,7 +708,7 @@ class RGM3800Base(object):
     if self._cached_info:
       return self._cached_info
     msg = self.SendRecv('PROY108', result='LOG108,')
-    data = msg[0].split(',')[1:]
+    data = msg[0].split(b',')[1:]
     # data type, ?, ?, memory full, ?, interval, ?, #tracks, #waypoints in last track
     result = list(map(int, data))
     self._cached_info = result
@@ -715,13 +716,13 @@ class RGM3800Base(object):
 
   def GetMemoryInfo(self):
     msg = self.SendRecv('PROY100', result='LOG100,')
-    data = msg[0].split(',')[1:]
+    data = msg[0].split(b',')[1:]
     # total memory, sector size, #sectors
     return list(map(int, data))
 
   def GetTrackInfo(self, number):
     msg = self.SendRecv('PROY101,%i' % number, result='LOG101,')
-    data = msg[0].split(',')[1:]
+    data = msg[0].split(b',')[1:]
     date = ParseDateTime(data[0])
     data = [date] + list(map(int, data[1:]))
     # date, data type, #waypoints, memory address
@@ -750,7 +751,7 @@ class RGM3800Base(object):
           break
         if noise > 100:
           raise SerialCommunicationError('too much noise')
-        if not msg.startswith('LOG102,'):
+        if not msg.startswith(b'LOG102,'):
           noise += 1
           continue
         try:
@@ -834,7 +835,7 @@ class RGM3800Base(object):
     last_message = time.time()
     while time.time() - last_message < msg_timeout:
       msg = self.RecvMessage()
-      if msg and msg.startswith('PSRFTXTSFAM Test Report:'):
+      if msg and msg.startswith(b'PSRFTXTSFAM Test Report:'):
         last_message = time.time()
         self.ShowProgress(msg[24:])
 
@@ -877,7 +878,7 @@ class RGM3800CLI(RGM3800Base):
 
 def DoInfo(rgm, args):
   if len(args) != 0:
-    return DoHelp(rgm, args)
+    return DoHelp()
 
   info = rgm.GetInfo()
   config_format, _, _, memoryfull, _, interval, _, tracks, _ = info
@@ -895,8 +896,8 @@ def DoInfo(rgm, args):
 
   data = rgm.SendRecv('PROY005', lines=5)
   for line in data:
-    if line.startswith('PSRFTXT,[ONOFFLOG]'):
-      version = data[1].split(']', 1)[1]
+    if line.startswith(b'PSRFTXT,[ONOFFLOG]'):
+      version = data[1].split(b']', 1)[1]
       break
   else:
     version = '[unknown]'
@@ -915,7 +916,7 @@ def DoInfo(rgm, args):
   rgm.SetProgressPercent(None)
 
   print('### Device ###')
-  print('Firmware version: %s' % version)
+  print('Firmware version: %s' % version.decode('ASCII', 'replace'))
   print('Total memory    : %i KB' % (memory // 1024))
   if timestamp:
     print('Current UTC time: %s' % timestamp)
@@ -944,7 +945,7 @@ def DoInfo(rgm, args):
 
 def DoDate(rgm, args):
   if len(args) != 0:
-    return DoHelp(rgm, args)
+    return DoHelp()
 
   timestamp = rgm.GetTimestamp()
   if timestamp:
@@ -1002,14 +1003,14 @@ def ParseRange(arg, min_, max_):
   
 def DoList(rgm, args):
   if len(args) > 1:
-    return DoHelp(rgm, args)
+    return DoHelp()
 
   info = rgm.GetInfo()
   _, _, _, _, _, _, _, tracks, _ = info
 
   range_iter = ParseRange(len(args) and args[0] or '', 0, tracks-1)
   if not range_iter:
-    return DoHelp(rgm, args)
+    return DoHelp()
 
   for i in range_iter:
     date, format, waypoints, address = rgm.GetTrackInfo(i)
@@ -1024,14 +1025,14 @@ def DoList(rgm, args):
 
 def DoTrack(rgm, args):
   if len(args) != 1:
-    return DoHelp(rgm, args)
+    return DoHelp()
 
   info = rgm.GetInfo()
   _, _, _, _, _, _, _, tracks, _ = info
 
   range_iter = ParseRange(args[0], 0, tracks-1)
   if not range_iter:
-    return DoHelp(rgm, args)
+    return DoHelp()
 
   for i in range_iter:
     waypoints = rgm.GetWaypoints(i)
@@ -1043,14 +1044,14 @@ def DoTrack(rgm, args):
 
 def DoTrackX(rgm, args):
   if len(args) != 1:
-    return DoHelp(rgm, args)
+    return DoHelp()
 
   info = rgm.GetInfo()
   _, _, _, _, _, _, _, tracks, _ = info
 
   range_iter = ParseRange(args[0], 0, tracks-1)
   if not range_iter:
-    return DoHelp(rgm, args)
+    return DoHelp()
 
   gpxdoc = minidom.getDOMImplementation().createDocument(
       'http://www.topografix.com/GPX/1/1', 'gpx', None)
@@ -1075,7 +1076,7 @@ def DoTrackX(rgm, args):
 
 def DoGMouse(rgm, args):
   if len(args) != 1 or args[0] not in ('on', 'off'):
-    return DoHelp(rgm, args)
+    return DoHelp()
   state = ['off', 'on'].index(args[0])
   if rgm.SetGPSMouse(state):
     print('OK')
@@ -1086,7 +1087,7 @@ def DoGMouse(rgm, args):
 
 def DoDump(rgm, args):
   if args:
-    return DoHelp(rgm, args)
+    return DoHelp()
   try:
     while True:
       msg = rgm.RecvMessage()
@@ -1100,7 +1101,7 @@ def DoDump(rgm, args):
 
 def DoInterval(rgm, args):
   if not ((len(args) == 1) and (1 <= int(args[0]) <= 60)):
-    return DoHelp(rgm, args)
+    return DoHelp()
   interval = int(args[0])
   if rgm.SetInterval(interval):
     print('OK')
@@ -1109,9 +1110,9 @@ def DoInterval(rgm, args):
   return 0
 
 
-def DoFormat(rgm, args):
+def DoFormat(rgm, args : list[str]) -> int:
   if len(args) != 1:
-    return DoHelp(rgm,args)
+    return DoHelp()
   format = int(args[0])
   if rgm.SetFormat(format):
     print('OK')
@@ -1120,9 +1121,9 @@ def DoFormat(rgm, args):
   return 0
 
 
-def DoMemoryFull(rgm, args):
+def DoMemoryFull(rgm, args : list[str]) -> int:
   if len(args) != 1 or args[0] not in ('overwrite', 'stop'):
-    return DoHelp(rgm, args)
+    return DoHelp()
   if rgm.SetMemoryFull(args[0]):
     print('OK')
   else:
@@ -1130,9 +1131,9 @@ def DoMemoryFull(rgm, args):
   return 0
 
 
-def DoErase(rgm, args):
+def DoErase(rgm, args : list[str]) -> int:
   if len(args) != 1 or args[0] != 'all':
-    return DoHelp(rgm, args)
+    return DoHelp()
 
   try:
     sure = input('Do you really want to delete ALL tracks? (y/n) [n]: ').lower()
@@ -1150,7 +1151,7 @@ def DoErase(rgm, args):
   return 0
 
 
-def DoHelp():
+def DoHelp() -> int:
   print('Usage: %s <GLOBAL OPTIONS> <COMMAND> <COMMAND OPTIONS>' % sys.argv[0])
   print()
   print('GLOBAL OPTIONS:')
@@ -1190,11 +1191,9 @@ def DoHelp():
   return 0
 
 
-def DoVersion():
-  r = _SUBVERSION_REVISION.replace('$', '').strip()
-  d = _SUBVERSION_DATE.split()[1]
+def DoVersion() -> int:
   pySerial = 'serial' in sys.modules and ' pySerial' or ''
-  print('rgm3800py %s (%s)%s' % (r, d, pySerial))
+  print('rgm3800py %s%s' % (VERSION, pySerial))
   return 0
 
 
@@ -1215,7 +1214,7 @@ commands = {
 }
 
 
-def FindDevice():
+def FindDevice() -> Optional[str]:
   devices = glob.glob('/dev/cu.PL2303-*')
   if len(devices) != 1:
     return None
@@ -1223,7 +1222,7 @@ def FindDevice():
     return devices[0]
 
 
-def main(argv):
+def main(argv : list[str]) -> int:
   device = None
 
   options, args = getopt.getopt(argv[1:], 'hd:v', ['help', 'device=', 'verbose'])
